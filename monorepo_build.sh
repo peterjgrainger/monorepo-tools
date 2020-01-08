@@ -9,6 +9,16 @@
 #
 # Example: monorepo_build.sh main-repository package-alpha:packages/alpha package-beta:packages/beta
 
+# Check for flags
+while [ -n "$1" ]
+do
+	case "$1" in
+		--include-develop | -d)
+			BRANCHES_TO_MERGE=("master" "develop")
+	esac
+    shift
+done
+
 # Check provided arguments
 if [ "$#" -lt "2" ]; then
     echo 'Please provide at least 2 remotes to be merged into a new monorepo'
@@ -28,32 +38,39 @@ for PARAM in $@; do
     if [ "$SUBDIRECTORY" == "" ]; then
         SUBDIRECTORY=$REMOTE
     fi
-    # Rewrite all branches from the first remote, only master branches from others
+    # Rewrite all branches from the first remote, master plus any defined branches from others
     if [ "$PARAM" == "$1" ]; then
         echo "Building all branches of the remote '$REMOTE'"
         $MONOREPO_SCRIPT_DIR/load_branches_from_remote.sh $REMOTE
         $MONOREPO_SCRIPT_DIR/rewrite_history_into.sh $SUBDIRECTORY --branches
         MERGE_REFS='master'
     else
-        echo "Building branch 'master' of the remote '$REMOTE'"
-        git checkout --detach $REMOTE/master
-        $MONOREPO_SCRIPT_DIR/rewrite_history_into.sh $SUBDIRECTORY
-        MERGE_REFS="$MERGE_REFS $(git rev-parse HEAD)"
+        for BRANCH in ${BRANCHES_TO_MERGE[@]}; do
+            echo "Building branch '$BRANCH' of the remote '$REMOTE'"
+            git checkout --detach $REMOTE/$BRANCH
+            $MONOREPO_SCRIPT_DIR/rewrite_history_into.sh $SUBDIRECTORY
+            MERGE_REFS="$MERGE_REFS $(git rev-parse HEAD)"
+        done
     fi
     # Wipe the back-up of original history
     $MONOREPO_SCRIPT_DIR/original_refs_wipe.sh
 done
-# Merge all master branches
+# Merge all master branches plus additional defined ones
 COMMIT_MSG="merge multiple repositories into a monorepo"$'\n'$'\n'"- merged using: 'monorepo_build.sh $@'"$'\n'"- see https://github.com/shopsys/monorepo-tools"
-git checkout master
-echo "Merging refs: $MERGE_REFS"
-git merge --no-commit -q $MERGE_REFS --allow-unrelated-histories
-echo 'Resolving conflicts using trees of all parents'
-for REF in $MERGE_REFS; do
-    # Add all files from all master branches into index
-    # "git read-tree" with multiple refs cannot be used as it is limited to 8 refs
-    git ls-tree -r $REF | git update-index --index-info
+
+for BRANCH in ${BRANCHES_TO_MERGE[@]}; do
+    git checkout $BRANCH
+    echo "Merging refs: $MERGE_REFS"
+    git merge --no-commit -q $MERGE_REFS --allow-unrelated-histories
+    echo 'Resolving conflicts using trees of all parents'
+    for REF in $MERGE_REFS; do
+        # Add all files from all master branches plus any additional defined branches into index
+        # "git read-tree" with multiple refs cannot be used as it is limited to 8 refs
+        git ls-tree -r $REF | git update-index --index-info
+    done
+    git commit -m "$COMMIT_MSG"
+    git reset --hard
 done
-git commit -m "$COMMIT_MSG"
-git reset --hard
+
+
 
