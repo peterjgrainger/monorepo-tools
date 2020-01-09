@@ -9,12 +9,14 @@
 #
 # Example: monorepo_build.sh main-repository package-alpha:packages/alpha package-beta:packages/beta
 
+BRANCHES_TO_MERGE=("master")
+
 # Check for flags
 while [ -n "$1" ]
 do
 	case "$1" in
 		--include-develop | -d)
-			BRANCHES_TO_MERGE=("master" "develop")
+			BRANCHES_TO_MERGE+=("develop")
 	esac
     shift
 done
